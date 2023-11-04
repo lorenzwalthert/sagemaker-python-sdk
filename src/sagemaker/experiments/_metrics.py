@@ -15,6 +15,7 @@ from __future__ import absolute_import
 
 import datetime
 import logging
+from multiprocessing import Value
 import os
 import time
 import threading
@@ -197,8 +198,15 @@ class _SyncMetricsSink(object):
             response = self._metrics_client.batch_put_metrics(**request)
             errors = response["Errors"] if "Errors" in response else None
             if errors:
-                message = errors[0]["Message"]
-                raise Exception(f'{len(errors)} errors with message "{message}"')
+                try:
+                    message = errors[0]["Message"]
+                    raise Exception(f'{len(errors)} errors with message "{message}"')
+                except KeyError:
+                    raise ValueError(
+                        f"Error message could not be parsed, here is the whole string: {str(errors)}:"
+                    )
+
+                    
 
     def _construct_batch_put_metrics_request(self, batch):
         """Creates dictionary object used as request to metrics service."""
