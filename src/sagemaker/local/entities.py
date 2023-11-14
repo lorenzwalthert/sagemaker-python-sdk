@@ -23,8 +23,10 @@ import time
 from uuid import uuid4
 from copy import deepcopy
 from botocore.exceptions import ClientError
+import pandas as pd
 
 import sagemaker.local.data
+import sagemaker.local.json_coding
 
 from sagemaker.local.image import _SageMakerContainer
 from sagemaker.local.utils import copy_directory_structure, move_to_destination, get_docker_host
@@ -516,15 +518,31 @@ class _LocalTransformJob(object):
 
             with open(destination_path, "wb") as f:
                 for item in batch_provider.pad(fn, max_payload):
-                    # call the container and add the result to inference.
+                    # call the container and add the result to inference
+                    item_as_df = sagemaker.local.json_coding.str_to_df(item)
                     response = self.local_session.sagemaker_runtime_client.invoke_endpoint(
-                        item, "", input_data["ContentType"], accept
+                        sagemaker.local.json_coding.df_to_str(
+                            sagemaker.local.json_coding.apply_json_path(
+                                item_as_df, kwargs["DataProcessing"].get("InputFilter")
+                            )
+                        ),
+                        "",
+                        input_data["ContentType"],
+                        accept,
                     )
 
                     response_body = response["Body"]
-                    data = response_body.read()
+                    response_as_df = sagemaker.local.json_coding.str_to_df(
+                        response_body.read().decode()
+                    )
                     response_body.close()
-                    f.write(data)
+                    out = sagemaker.local.json_coding.df_to_str(
+                        sagemaker.local.json_coding.apply_json_path(
+                            pd.concat([item_as_df, response_as_df], axis=1),
+                            kwargs["DataProcessing"].get("OutputFilter"),
+                        )
+                    )
+                    f.write(out.encode())
                     if "AssembleWith" in output_data and output_data["AssembleWith"] == "Line":
                         f.write(b"\n")
 
